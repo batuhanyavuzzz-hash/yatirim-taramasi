@@ -5,15 +5,13 @@ import streamlit as st
 
 class YahooProvider:
     """
-    TwelveData üzerinden günlük OHLCV çeker.
-    Streamlit Cloud'da çalışır (API key gerekir).
+    TwelveData provider (Streamlit Cloud uyumlu)
+    SPY için exchange parametresi ZORUNLU
     """
 
     def __init__(self):
-        self.api_key = None
-        # Streamlit Secrets
         try:
-            self.api_key = st.secrets.get("TWELVEDATA_API_KEY")
+            self.api_key = st.secrets["TWELVEDATA_API_KEY"]
         except Exception:
             self.api_key = None
 
@@ -21,10 +19,8 @@ class YahooProvider:
         if not self.api_key:
             return pd.DataFrame()
 
-        symbol = str(ticker).strip().upper()
+        symbol = str(ticker).upper()
 
-        # TwelveData time_series endpoint
-        url = "https://api.twelvedata.com/time_series"
         params = {
             "symbol": symbol,
             "interval": "1day",
@@ -33,23 +29,26 @@ class YahooProvider:
             "format": "JSON",
         }
 
+        # 🔴 KRİTİK: SPY için exchange belirt
+        if symbol == "SPY":
+            params["exchange"] = "NYSEARCA"
+
+        url = "https://api.twelvedata.com/time_series"
+
         try:
             r = requests.get(url, params=params, timeout=20)
-            if r.status_code != 200:
-                return pd.DataFrame()
             js = r.json()
         except Exception:
             return pd.DataFrame()
 
-        # error handling
-        if isinstance(js, dict) and js.get("status") == "error":
+        # API error
+        if not isinstance(js, dict) or js.get("status") == "error":
             return pd.DataFrame()
 
         values = js.get("values")
         if not values:
             return pd.DataFrame()
 
-        # values: list of dicts with datetime, open, high, low, close, volume
         df = pd.DataFrame(values)
         if df.empty:
             return pd.DataFrame()
@@ -59,12 +58,11 @@ class YahooProvider:
         df = df.dropna(subset=["datetime"]).set_index("datetime").sort_index()
 
         for c in ["open", "high", "low", "close", "volume"]:
-            if c in df.columns:
-                df[c] = pd.to_numeric(df[c], errors="coerce")
+            df[c] = pd.to_numeric(df[c], errors="coerce")
 
         df = df[["open", "high", "low", "close", "volume"]].dropna()
 
-        # date filter (start/end are datetime.date)
+        # tarih filtresi
         df = df.loc[(df.index.date >= start) & (df.index.date <= end)]
 
         return df
