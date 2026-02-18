@@ -1,5 +1,4 @@
 import streamlit as st
-import pandas as pd
 from datetime import date, timedelta
 
 from src.data.yahoo import YahooProvider
@@ -7,31 +6,29 @@ from src.screener import run_screen
 from src.universe import load_universe
 
 st.set_page_config(page_title="Minervini Auto Screener", layout="wide")
-
 st.title("🇺🇸 Minervini OTOMATİK Swing Screener")
 
-st.markdown("""
-Bu sistem **manuel filtreleme içermez**.  
-Butona bas → **stratejiye UYAN hisseler** gelir.  
-Boş liste = piyasada uygun setup yok.
-""")
+provider = YahooProvider()
+tickers = load_universe()
+
+st.info(f"Universe yüklendi: **{len(tickers)} ticker**")
 
 run_btn = st.button("🚀 OTOMATİK TARAMAYI ÇALIŞTIR", type="primary")
 
-provider = YahooProvider()
-tickers = load_universe()   # otomatik universe
-
 if run_btn:
     end = date.today()
-    start = end - timedelta(days=800)
+    start = end - timedelta(days=900)
 
-    with st.spinner("ABD piyasası taranıyor..."):
-        df = run_screen(
+    with st.spinner("Tarama çalışıyor..."):
+        df, stats = run_screen(
             tickers=tickers,
             provider=provider,
             start=start,
             end=end
         )
+
+    st.write("### Tarama İstatistikleri")
+    st.write(stats)
 
     if df.empty:
         st.warning("❌ Bugün Minervini kriterlerine uyan hisse yok.")
