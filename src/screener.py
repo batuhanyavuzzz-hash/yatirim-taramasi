@@ -49,10 +49,11 @@ def run_screen(tickers, provider, start, end):
         except Exception:
             continue
 
+        # 🔒 Trend Template (HARD)
         if not (price > ema50 and ema50 > ema150 and ema150 > ema200):
             continue
 
-        # EMA200 slope
+        # 🔒 EMA200 slope
         if float(df["ema200"].iloc[-1]) <= float(df["ema200"].iloc[-21]):
             continue
 
@@ -74,9 +75,13 @@ def run_screen(tickers, provider, start, end):
         if dist_pct > 35:
             continue
 
-        # Breakout (20g pivot)
+        # 🟡 BREAKOUT (YUMUŞATILDI)
         pivot = df["high"].rolling(20).max().shift(1).iloc[-1]
-        if price <= pivot:
+
+        breakout = price > pivot
+        near_breakout = (pivot - price) / pivot <= 0.01   # %1 altında
+
+        if not (breakout or near_breakout):
             continue
 
         # Hacim onayı (1.2x)
@@ -94,6 +99,8 @@ def run_screen(tickers, provider, start, end):
             "52W Dist %": round(dist_pct, 2),
             "Avg Vol": int(avg_vol20),
             "Pivot": round(float(pivot), 2),
+            "Breakout": breakout,
+            "Near Breakout": near_breakout,
             "Stop": round(float(stop), 2),
             "TP1": round(float(tp1), 2),
             "TP2": round(float(tp2), 2),
