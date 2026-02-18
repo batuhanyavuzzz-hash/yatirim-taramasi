@@ -32,12 +32,19 @@ def run_screen(tickers, provider, start, end):
         # -------------------------------
 
         # 1️⃣ Trend Template
-        if not (price > last["ema50"] > last["ema150"] > last["ema200"]):
-            continue
+        ema50  = float(last["ema50"])
+ema150 = float(last["ema150"])
+ema200 = float(last["ema200"])
 
+if not (price > ema50 and ema50 > ema150 and ema150 > ema200):
+    continue
+    
         # 2️⃣ EMA200 slope
-        if df["ema200"].iloc[-1] <= df["ema200"].iloc[-21]:
-            continue
+        ema200_now  = float(df["ema200"].iloc[-1])
+ema200_prev = float(df["ema200"].iloc[-21])
+
+if ema200_now <= ema200_prev:
+    continue
 
         # 3️⃣ Likidite
         avg_vol20 = df["volume"].rolling(20).mean().iloc[-1]
