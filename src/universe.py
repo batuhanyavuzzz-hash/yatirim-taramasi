@@ -1,0 +1,3 @@
+DEFAULT_UNIVERSE = [
+    "NVDA","AMD","AMAT","CLS","VRT","PLTR","DDOG","TSLA","META","AAPL"
+]
