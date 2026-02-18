@@ -1,6 +1,4 @@
 streamlit
-tradingview-ta
 pandas
-xlsxwriter
-requests
-lxml
+numpy
+yfinance
