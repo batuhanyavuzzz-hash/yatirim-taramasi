@@ -9,8 +9,13 @@ st.set_page_config(page_title="Minervini Auto Screener", layout="wide")
 st.title("🇺🇸 Minervini OTOMATİK Swing Screener")
 
 provider = YahooProvider()
-tickers = load_universe()
 
+# API key kontrol
+if not provider.api_key:
+    st.error("TWELVEDATA_API_KEY bulunamadı. Streamlit Cloud → Settings → Secrets içine ekle.")
+    st.stop()
+
+tickers = load_universe()
 st.info(f"Universe yüklendi: **{len(tickers)} ticker**")
 
 run_btn = st.button("🚀 OTOMATİK TARAMAYI ÇALIŞTIR", type="primary")
@@ -20,12 +25,7 @@ if run_btn:
     start = end - timedelta(days=900)
 
     with st.spinner("Tarama çalışıyor..."):
-        df, stats = run_screen(
-            tickers=tickers,
-            provider=provider,
-            start=start,
-            end=end
-        )
+        df, stats = run_screen(tickers=tickers, provider=provider, start=start, end=end)
 
     st.write("### Tarama İstatistikleri")
     st.write(stats)
