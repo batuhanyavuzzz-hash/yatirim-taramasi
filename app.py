@@ -10,13 +10,17 @@ st.title("🇺🇸 Minervini OTOMATİK Swing Screener")
 
 provider = YahooProvider()
 
-# API key kontrol
-if not provider.api_key:
-    st.error("TWELVEDATA_API_KEY bulunamadı. Streamlit Cloud → Settings → Secrets içine ekle.")
-    st.stop()
-
 tickers = load_universe()
 st.info(f"Universe yüklendi: **{len(tickers)} ticker**")
+
+# 🔎 SPY diagnostic button
+if st.button("🔎 SPY Test (diagnostic)"):
+    end = date.today()
+    start = end - timedelta(days=365)
+    _ = provider.history("SPY", start, end)
+    st.write("### TwelveData SPY Diagnostic")
+    st.write(provider.last_diag)
+    st.stop()
 
 run_btn = st.button("🚀 OTOMATİK TARAMAYI ÇALIŞTIR", type="primary")
 
@@ -29,6 +33,10 @@ if run_btn:
 
     st.write("### Tarama İstatistikleri")
     st.write(stats)
+
+    if stats.get("error") == "SPY data missing":
+        st.error("SPY verisi gelmedi. Önce 'SPY Test (diagnostic)' butonuna basıp sonucu buraya yapıştır.")
+        st.stop()
 
     if df.empty:
         st.warning("❌ Bugün Minervini kriterlerine uyan hisse yok.")
