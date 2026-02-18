@@ -5,94 +5,96 @@ import streamlit.components.v1 as components
 import requests
 import io
 
-st.set_page_config(page_title="Alpha Scoring Terminal", layout="wide")
+st.set_page_config(page_title="Alpha V12 - Market Ocean", layout="wide")
 
-# --- ANAYASAL PUANLAMA MOTORU ---
-def analyze_with_score(symbol):
+# --- DİNAMİK LİSTE ÇEKİCİ (S&P 500 + NASDAQ 100) ---
+@st.cache_data(ttl=86400) # Listeyi 24 saatte bir günceller
+def get_massive_watchlist():
     try:
-        handler = TA_Handler(symbol=symbol, screener="america", exchange="AMERICA", interval=Interval.INTERVAL_1_DAY)
-        ind = handler.get_analysis().indicators
+        # S&P 500 Listesi
+        sp500_url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+        sp500 = pd.read_html(io.StringIO(requests.get(sp500_url).text))[0]['Symbol'].tolist()
+        # NASDAQ 100 Listesi
+        ndx_url = 'https://en.wikipedia.org/wiki/Nasdaq-100'
+        ndx = pd.read_html(io.StringIO(requests.get(ndx_url).text))[4]['Ticker'].tolist()
         
-        # Veriler
-        price = ind["close"]
-        ma50, ma100, ma200 = ind["SMA50"], ind["SMA100"], ind["SMA200"]
-        rsi = ind["RSI"]
-        vol_ratio = ind["volume"] / ind.get("average_volume_10d", ind["volume"])
-        
-        score = 0
-        details = []
-
-        # 1. Kriter: Fiyat Ortalamaların Üstünde mi?
-        if price > ma100 and price > ma200:
-            score += 1
-            details.append("✅ Trend")
-        
-        # 2. Kriter: Dizilim Doğru mu? (MA100 > MA200)
-        if ma100 > ma200:
-            score += 1
-            details.append("✅ Dizilim")
-
-        # 3. Kriter: MA50 Momentum Var mı?
-        if ma50 > ma100:
-            score += 1
-            details.append("✅ Momentum")
-
-        # 4. Kriter: RSI Güçlü mü? (> 55)
-        if rsi > 55:
-            score += 1
-            details.append("✅ RSI")
-
-        # 5. Kriter: Hacimli Onay var mı? (> 1.2)
-        if vol_ratio > 1.2:
-            score += 1
-            details.append("🔥 HACİM")
-
-        return {
-            "Hisse": symbol,
-            "Puan": f"{score}/5",
-            "Kriterler": ", ".join(details),
-            "Fiyat": round(price, 2),
-            "Hacim Gücü": f"%{round((vol_ratio-1)*100, 1)}",
-            "RSI": round(rsi, 1),
-            "Status": "🏆 MÜKEMMEL" if score == 5 else ("⭐ GÜÇLÜ" if score == 4 else "👀 TAKİP")
-        }
+        # Listeleri birleştir ve temizle (noktaları tire yap: BRK.B -> BRK-B)
+        full_list = list(set(sp500 + ndx))
+        return [s.replace('.', '-') for s in full_list]
     except:
-        return None
+        # Hata olursa yedek güvenli liste
+        return ["AAPL", "NVDA", "TSLA", "AROC", "PLTR", "AMD", "MSFT", "META"]
+
+def analyze_engine(symbol):
+    """Anayasa Puanlama Motoru"""
+    for ex in ["NASDAQ", "NYSE", "AMERICA"]:
+        try:
+            handler = TA_Handler(symbol=symbol, screener="america", exchange=ex, interval=Interval.INTERVAL_1_DAY)
+            ind = handler.get_analysis().indicators
+            if not ind: continue
+
+            price = ind["close"]
+            ma50, ma100, ma200 = ind["SMA50"], ind["SMA100"], ind["SMA200"]
+            rsi, vol = ind["RSI"], ind["volume"]
+            avg_vol = ind.get("average_volume_10d", vol)
+
+            # --- 5 MADDELİK ANAYASA PUANLAMASI ---
+            score = 0
+            if price > ma200: score += 1      # 1. Trend
+            if ma100 > ma200: score += 1      # 2. Dizilim
+            if ma50 > ma100: score += 1       # 3. Momentum
+            if rsi > 55: score += 1           # 4. Güç
+            if vol > (avg_vol * 1.2): score += 1 # 5. Hacim Onayı
+
+            if score >= 3: # En az 3 puan alanları göster (kalabalığı önlemek için)
+                return {
+                    "Hisse": symbol,
+                    "Puan": f"{score}/5",
+                    "Fiyat": round(price, 2),
+                    "Hacim": f"%{round(((vol/avg_vol)-1)*100, 1)}",
+                    "RSI": round(rsi, 1),
+                    "VCP": "🎯 DARALMA" if ind["ATR"] < (sum([ind["ATR"]]*5)/5) else "NORMAL"
+                }
+        except: continue
+    return None
 
 # --- ARAYÜZ ---
-st.title("🦅 Alpha US: Puanlama Tabanlı Stratejik Radar")
+st.title("🌊 Alpha Market Ocean: S&P 500 & Nasdaq 100")
 
-tab1, tab2 = st.tabs(["🔍 Okyanus Taraması", "📈 Grafik Analiz"])
+tab1, tab2 = st.tabs(["🔍 Dev Tarama", "📊 Teknik Analiz"])
 
 with tab1:
-    st.markdown("5'te 5 yapan hisse bulmak zordur. Bu panel kriterleri puanlayarak en yakın adayları listeler.")
+    all_tickers = get_massive_watchlist()
+    st.write(f"Sistemde yüklü toplam hisse: **{len(all_tickers)}**")
     
-    # Otomatik Liste Çekme (Yedekli)
-    symbols = ["AAPL", "NVDA", "TSLA", "AROC", "PLTR", "AMD", "MSFT", "AMZN", "META", "GOOGL", "NFLX", "AVGO", "SMCI", "COIN", "MARA", "SHOP", "RIVN", "UBER"]
-    
-    if st.button("🚀 Puanlamalı Taramayı Başlat"):
+    col1, col2 = st.columns(2)
+    with col1:
+        batch_size = st.slider("Tarama Aralığı (Hisse Sayısı)", 50, len(all_tickers), 100)
+    with col2:
+        start_from = st.number_input("Kaçıncı hisseden başlasın?", 0, len(all_tickers), 0)
+
+    if st.button("🚀 Okyanusu Tara"):
+        subset = all_tickers[start_from : start_from + batch_size]
         results = []
         bar = st.progress(0)
-        for i, s in enumerate(symbols):
-            res = analyze_with_score(s)
+        status = st.empty()
+        
+        for i, s in enumerate(subset):
+            status.text(f"Analiz ediliyor ({i+1}/{len(subset)}): {s}")
+            res = analyze_engine(s)
             if res: results.append(res)
-            bar.progress((i + 1) / len(symbols))
+            bar.progress((i + 1) / len(subset))
         
         if results:
             df = pd.DataFrame(results).sort_values(by="Puan", ascending=False)
-            # Görselleştirme
-            def color_score(val):
-                if "5/5" in val: return 'background-color: #1ed760; color: black; font-weight: bold'
-                if "4/5" in val: return 'background-color: #f1c40f; color: black'
-                return ''
-
-            st.dataframe(df.style.applymap(color_score, subset=['Puan']), use_container_width=True)
+            st.success(f"Kriterlere yakın {len(results)} hisse bulundu!")
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.error("Bu aralıkta anayasaya uyan hisse bulunamadı. Filtreler çok sert!")
 
 with tab2:
-    ticker = st.text_input("Grafik:", "AROC").upper()
-    tv_html = f"""
-    <div style="height:600px;"><script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-    <script type="text/javascript">new TradingView.widget({{"autosize": true,"symbol": "{ticker}","interval": "D","timezone": "America/New_York","theme": "dark","style": "1","locale": "tr","container_id": "tv_v10"}});</script>
-    <div id="tv_v10" style="height:100%;"></div></div>
-    """
-    components.html(tv_html, height=600)
+    check_sym = st.text_input("Hisse Kodu:", "AROC").upper()
+    tv_html = f"""<div style="height:600px;"><script src="https://s3.tradingview.com/tv.js"></script>
+    <script>new TradingView.widget({{"autosize": true,"symbol": "{check_sym}","interval": "D","theme": "dark","style": "1","locale": "tr","container_id": "v12"}});</script>
+    <div id="v12" style="height:100%;"></div></div>"""
+    components.html(tv_html, height=620)
