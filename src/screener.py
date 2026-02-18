@@ -1,93 +1,140 @@
 import pandas as pd
+import numpy as np
+
 from .indicators import ema, atr, rs_score
+from .risk import risk_plan
 
 def run_screen(
-    tickers, provider, start, end,
-    min_avg_vol: int,
-    atr_min: float,
-    atr_max: float,
-    vol_mult: float,
-    near_52w_high_pct: int,
-    benchmark: str="SPY",
+    tickers,
+    provider,
+    start,
+    end,
+    benchmark="SPY",
+    min_avg_vol=800_000,
+    min_price=10.0,
+    atr_min=2.0,
+    atr_max=12.0,
+    near_52w_high_pct=30,
+    vol_mult=1.5,
+    approved_map=None,
 ):
+    approved_map = approved_map or {}
+    dbg = []
+
     bench = provider.history(benchmark, start, end)
-    if bench.empty:
-        return pd.DataFrame()
+    if bench is None or bench.empty or "close" not in bench.columns:
+        return pd.DataFrame(), [{"error": "Benchmark data missing"}]
 
     out = []
+
     for t in tickers:
         df = provider.history(t, start, end)
-        if df.empty or len(df) < 260:
+
+        if df is None or df.empty:
+            dbg.append({"ticker": t, "rows": 0, "reason": "no_data"})
+            continue
+
+        if len(df) < 260:
+            dbg.append({"ticker": t, "rows": len(df), "reason": "too_short"})
             continue
 
         close = df["close"]
+        df["ema21"] = ema(close, 21)
         df["ema50"] = ema(close, 50)
         df["ema150"] = ema(close, 150)
         df["ema200"] = ema(close, 200)
         df["atr14"] = atr(df, 14)
 
         last = df.iloc[-1]
-        avg_vol20 = df["volume"].rolling(20).mean().iloc[-1]
-        if pd.isna(avg_vol20) or avg_vol20 < min_avg_vol:
+        price = float(last["close"])
+
+        if price < float(min_price):
+            dbg.append({"ticker": t, "rows": len(df), "reason": "min_price"})
             continue
 
-        atr_pct = (last["atr14"] / last["close"]) * 100
-        if pd.isna(atr_pct) or atr_pct < atr_min or atr_pct > atr_max:
+        avg_vol20 = float(df["volume"].rolling(20).mean().iloc[-1])
+        if np.isnan(avg_vol20) or avg_vol20 < float(min_avg_vol):
+            dbg.append({"ticker": t, "rows": len(df), "reason": "min_avg_vol"})
             continue
 
-        # Trend filtresi
-        cond_trend = (
-            last["close"] > last["ema50"] > last["ema150"] > last["ema200"]
-        )
-        ema200_slope = df["ema200"].iloc[-1] - df["ema200"].iloc[-21]
-        if not cond_trend or ema200_slope <= 0:
+        atr_pct = float((last["atr14"] / last["close"]) * 100.0)
+        if np.isnan(atr_pct) or atr_pct < float(atr_min) or atr_pct > float(atr_max):
+            dbg.append({"ticker": t, "rows": len(df), "reason": "atr_pct"})
             continue
 
         # 52W high proximity
-        high_52w = df["high"].rolling(252).max().iloc[-1]
-        dist_pct = (high_52w - last["close"]) / high_52w * 100
-        if dist_pct > near_52w_high_pct:
+        high_52w = float(df["high"].rolling(252).max().iloc[-1])
+        dist_pct = float((high_52w - price) / high_52w * 100.0) if high_52w else float("nan")
+
+        # Trend checks
+        ema200_slope = float(df["ema200"].iloc[-1] - df["ema200"].iloc[-21])
+        template_strict = bool(price > last["ema50"] > last["ema150"] > last["ema200"] and ema200_slope > 0)
+        template_soft = bool(price > last["ema50"] and last["ema50"] > last["ema200"] and ema200_slope > 0)
+
+        # Breakout (20d pivot)
+        pivot = df["high"].rolling(20).max().shift(1).iloc[-1]
+        breakout = bool(pd.notna(pivot) and price > float(pivot))
+        vol_confirm = bool(breakout and float(last["volume"]) >= float(vol_mult) * avg_vol20)
+
+        # RS score vs benchmark
+        rs = rs_score(close, bench["close"])
+        if np.isnan(rs):
+            dbg.append({"ticker": t, "rows": len(df), "reason": "rs_nan"})
             continue
 
-        # Basit breakout: son 20 günün en yükseğini kırıyor mu?
-        pivot = df["high"].rolling(20).max().shift(1).iloc[-1]
-        breakout = last["close"] > pivot if pd.notna(pivot) else False
+        # Score (0..)
+        score = 0
+        # trend
+        score += 3 if template_strict else (2 if template_soft else 0)
+        # 52w high proximity (closer = better)
+        if pd.notna(dist_pct):
+            if dist_pct <= near_52w_high_pct:
+                score += 2
+            elif dist_pct <= near_52w_high_pct * 1.5:
+                score += 1
+        # breakout & vol
+        score += 2 if breakout else 0
+        score += 2 if vol_confirm else 0
+        # rs bucket
+        if rs > 0.20:
+            score += 3
+        elif rs > 0.10:
+            score += 2
+        elif rs > 0.00:
+            score += 1
 
-        # Hacim onayı
-        vol_ok = last["volume"] >= vol_mult * avg_vol20
-
-        # RS skor
-        rs = rs_score(close, bench["close"])
-
-        # Risk (örnek): stop = pivot altı %1 buffer
-        stop = pivot * 0.99 if pd.notna(pivot) else float("nan")
-        entry = last["close"]
-        r = entry - stop if pd.notna(stop) else float("nan")
-        tp1 = entry + 2*r if pd.notna(r) else float("nan")
-        tp2 = entry + 3*r if pd.notna(r) else float("nan")
+        # Risk plan
+        stop, tp1, tp2 = risk_plan(price, float(pivot) if pd.notna(pivot) else None)
 
         out.append({
             "ticker": t,
-            "price": round(entry, 2),
+            "price": round(price, 2),
+            "score": int(score),
+            "trend_template": "strict" if template_strict else ("soft" if template_soft else "no"),
             "avg_vol20": int(avg_vol20),
             "atr_pct": round(atr_pct, 2),
-            "dist_52w_high_pct": round(dist_pct, 2),
+            "dist_52w_high_pct": round(dist_pct, 2) if pd.notna(dist_pct) else None,
             "breakout": breakout,
-            "vol_confirm": vol_ok,
-            "rs_score": rs,
-            "stop": round(stop, 2) if pd.notna(stop) else None,
-            "tp1": round(tp1, 2) if pd.notna(tp1) else None,
-            "tp2": round(tp2, 2) if pd.notna(tp2) else None,
+            "vol_confirm": vol_confirm,
+            "rs_score": round(float(rs), 4),
+            "pivot": round(float(pivot), 2) if pd.notna(pivot) else None,
+            "stop": round(float(stop), 2) if stop is not None else None,
+            "tp1": round(float(tp1), 2) if tp1 is not None else None,
+            "tp2": round(float(tp2), 2) if tp2 is not None else None,
+            "approved": t in approved_map,
         })
 
+        dbg.append({"ticker": t, "rows": len(df), "reason": "ok", "score": int(score)})
+
     if not out:
-        return pd.DataFrame()
+        return pd.DataFrame(), dbg
 
     res = pd.DataFrame(out)
-    # Uygunluk sıralaması: breakout+vol_confirm önce, sonra rs_score
-    res["setup_score"] = (
-        res["breakout"].astype(int)*2 +
-        res["vol_confirm"].astype(int)*2
-    )
-    res = res.sort_values(by=["setup_score","rs_score"], ascending=False).reset_index(drop=True)
-    return res
+
+    # Sıralama: score desc, sonra RS desc, sonra vol_confirm/breakout
+    res = res.sort_values(
+        by=["score", "rs_score", "vol_confirm", "breakout", "avg_vol20"],
+        ascending=[False, False, False, False, False]
+    ).reset_index(drop=True)
+
+    return res, dbg
