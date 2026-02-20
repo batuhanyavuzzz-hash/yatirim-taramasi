@@ -9,22 +9,22 @@ st.set_page_config(page_title="Minervini Auto Screener", layout="wide")
 st.title("🇺🇸 Minervini OTOMATİK Swing Screener")
 
 st.sidebar.header("Ayarlar")
-manual_api_key = st.sidebar.text_input(
+sidebar_api_key = st.sidebar.text_input(
     "TwelveData API Key",
     type="password",
-    help="İstersen Streamlit Secrets yerine buradan geçici API key girebilirsin."
+    help="İstersen Streamlit Secrets yerine buradan API key girebilirsin.",
 )
 
-provider = YahooProvider(api_key=manual_api_key.strip() if manual_api_key else None)
+provider = YahooProvider(api_key=sidebar_api_key.strip() if sidebar_api_key else None)
 
-# API key kontrolü
 if not provider.api_key:
-    st.warning(
-        "TWELVEDATA_API_KEY bulunamadı. "
-        "Streamlit Cloud → Settings → Secrets içine ekleyin "
-        "veya soldaki alandan geçici key girin."
-    )
-    st.stop()
+    st.warning("TwelveData API key gerekli. Aşağıya API key girerek devam edebilirsin.")
+    page_api_key = st.text_input("TwelveData API Key (zorunlu)", type="password")
+    provider = YahooProvider(api_key=page_api_key.strip() if page_api_key else None)
+
+    if not provider.api_key:
+        st.info("API key girildiğinde tarama ekranı otomatik aktif olur.")
+        st.stop()
 
 # Universe yükle
 tickers = load_universe()
@@ -42,7 +42,7 @@ if run_btn:
             tickers=tickers,
             provider=provider,
             start=start,
-            end=end
+            end=end,
         )
 
     st.write("### Tarama İstatistikleri")
