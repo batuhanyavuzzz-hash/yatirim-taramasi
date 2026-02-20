@@ -1,6 +1,4 @@
 import pandas as pd
-import numpy as np
-
 from src.indicators import ema, atr
 from src.risk import risk_plan
 
@@ -12,6 +10,7 @@ def run_screen(tickers, provider, start, end):
         "passed_trend": 0,
         "passed_breakout": 0,
         "final_pass": 0,
+        "skipped_invalid_risk": 0,
     }
 
     results = []
@@ -91,6 +90,9 @@ def run_screen(tickers, provider, start, end):
         stats["passed_breakout"] += 1
 
         stop, tp1, tp2 = risk_plan(price, pivot)
+        if stop is None:
+            stats["skipped_invalid_risk"] += 1
+            continue
 
         results.append({
             "Ticker": t,
