@@ -8,11 +8,22 @@ from src.universe import load_universe
 st.set_page_config(page_title="Minervini Auto Screener", layout="wide")
 st.title("🇺🇸 Minervini OTOMATİK Swing Screener")
 
-provider = YahooProvider()
+st.sidebar.header("Ayarlar")
+manual_api_key = st.sidebar.text_input(
+    "TwelveData API Key",
+    type="password",
+    help="İstersen Streamlit Secrets yerine buradan geçici API key girebilirsin."
+)
+
+provider = YahooProvider(api_key=manual_api_key.strip() if manual_api_key else None)
 
 # API key kontrolü
 if not provider.api_key:
-    st.error("TWELVEDATA_API_KEY bulunamadı. Streamlit Cloud → Settings → Secrets içine ekle.")
+    st.warning(
+        "TWELVEDATA_API_KEY bulunamadı. "
+        "Streamlit Cloud → Settings → Secrets içine ekleyin "
+        "veya soldaki alandan geçici key girin."
+    )
     st.stop()
 
 # Universe yükle

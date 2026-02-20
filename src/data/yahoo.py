@@ -2,8 +2,10 @@ import pandas as pd
 import requests
 import streamlit as st
 import time
+import os
 
-@st.cache_data(ttl=60*60*6)  # 6 saat cache
+
+@st.cache_data(ttl=60 * 60 * 6)  # 6 saat cache
 def _fetch(symbol, api_key):
     url = "https://api.twelvedata.com/time_series"
     params = {
@@ -21,8 +23,14 @@ def _fetch(symbol, api_key):
 
 
 class YahooProvider:
-    def __init__(self):
-        self.api_key = st.secrets.get("TWELVEDATA_API_KEY", None)
+    def __init__(self, api_key=None):
+        try:
+            secrets_key = st.secrets["TWELVEDATA_API_KEY"]
+        except Exception:
+            secrets_key = None
+
+        env_key = os.getenv("TWELVEDATA_API_KEY")
+        self.api_key = api_key or secrets_key or env_key
 
     def history(self, ticker, start, end):
         if not self.api_key:
